@@ -1,0 +1,1 @@
+web: gunicorn lambda331:APP -t 120 --log-file=- --log-level=debug

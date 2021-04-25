@@ -2,45 +2,30 @@
 from os import getenv
 import tweepy
 import spacy
-from .models import DB, Tweet, User
+from .data_model import DB, Tweet, User
 
-TWITTER_API_KEY = getenv("TWITTER_API_KEY")
-TWITTER_API_SECRET = getenv("TWITTER_API_SECRET")
-TWITTER_AUTH = tweepy.OAuthHandler(TWITTER_API_KEY, TWITTER_API_SECRET)
-TWITTER = tweepy.API(TWITTER_AUTH)
+twitter_api_key = getenv("TWITTER_API_KEY")
+twitter_api_secret = getenv("TWITTER_API_SECRET")
+twitter_auth = tweepy.OAuthHandler(twitter_api_key, twitter_api_secret)
+twitter_api = tweepy.API(twitter_auth)
 
-# nlp model
-nlp = spacy.load('my_model')
-
-
-def vectorize_tweet(tweet_text):
-    return nlp(tweet_text).vector
-
-
-def add_or_update_user(username):
+def upsert_user(twitter_handle):
     try:
-        twitter_user = TWITTER.get_user(username)
-        db_user = (User.query.get(twitter_user.id)) or User(
-            id=twitter_user.id, name=username)
+        twitter_user = twitter_api.get_user(twitter_handle)
+        if User.query.get(twitter_user.id):
+            db_user = User.query.get(twitter_user.id)
+        else:
+            db_user = User(id=twitter_user.id, name=twitter_handle)
         DB.session.add(db_user)
 
-        tweets = twitter_user.timeline(
-            count=200, exclude_replies=True, include_rts=False,
-            tweet_mode="extended"
-        )
+        user_tweets = twitter_user.timeline(count=200, exclude_replies=True,
+        include_rts=False, tweet_mode="extended")
 
-        if tweets:
-            db_user.newest_tweet_id = tweets[0].id
-
-        for tweet in tweets:
-            vectorized_tweet = vectorize_tweet(tweet.full_text)
-            db_tweet = Tweet(id=tweet.id, text=tweet.full_text,
-                                        vect=vectorized_tweet)
+        for tweet in user_tweets:
+            db_tweet = Tweet(id=tweet.id, text=tweet.full_text)
             db_user.tweets.append(db_tweet)
             DB.session.add(db_tweet)
-
-        DB.session.commit()
-
     except Exception as e:
-        print('Error processing{}: {}'.format(username, e))
         raise e
+    else:
+        DB.session.commit()
